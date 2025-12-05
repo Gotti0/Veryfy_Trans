@@ -225,8 +225,10 @@ class OrchestratorApp(QMainWindow):
             original_text = line
             pair_layout = QHBoxLayout()
             original_label = QLabel(original_text)
+            original_label.setTextFormat(Qt.PlainText)
             original_label.setWordWrap(True)
-            translation_edit = QTextEdit(original_text)
+            translation_edit = QTextEdit()
+            translation_edit.setPlainText(original_text)
             translation_edit.setMinimumHeight(40)
             pair_layout.addWidget(original_label, 1)
             pair_layout.addWidget(translation_edit, 1)
@@ -257,7 +259,7 @@ class OrchestratorApp(QMainWindow):
         for i, line in enumerate(parsed_lines):
             if i < len(self.sentence_pairs):
                 _, translation_edit = self.sentence_pairs[i]
-                translation_edit.setText(line)
+                translation_edit.setPlainText(line)
         
         self.status_bar.showMessage(f"'{os.path.basename(file_path)}' 파일에서 {len(parsed_lines)}개의 수정본을 로드했습니다.", 5000)
         logging.info(f"'{file_path}'에서 {len(parsed_lines)}개의 수정본을 로드하여 적용했습니다.")
