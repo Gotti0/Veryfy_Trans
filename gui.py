@@ -173,7 +173,7 @@ class OrchestratorApp(QMainWindow):
         self.status_bar.showMessage("치환 규칙 편집기 닫힘.", 3000)
 
     def select_and_run_check(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "대상 파일 선택", "", "텍스트 파일 (*.txt);;모든 파일 (*)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "대상 파일 선택", "", "로그 및 텍스트 파일 (*.log *.txt);;모든 파일 (*)")
         if not file_path:
             logging.warning("파일 선택이 취소되었습니다.")
             return
@@ -241,7 +241,7 @@ class OrchestratorApp(QMainWindow):
 
     def load_translated_log(self):
         logging.info("수정본 로그 파일 로드를 시작합니다.")
-        file_path, _ = QFileDialog.getOpenFileName(self, "수정본 로그 파일 선택", "", "로그 파일 (*.log);;모든 파일 (*.txt)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "수정본 로그 파일 선택", "", "로그 및 텍스트 파일 (*.log *.txt);;모든 파일 (*.txt)")
         if not file_path:
             logging.warning("수정본 로그 파일 선택이 취소되었습니다.")
             return
