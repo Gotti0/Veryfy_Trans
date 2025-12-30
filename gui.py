@@ -3,6 +3,7 @@ import subprocess
 import os
 import json
 import logging
+import math
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QFileDialog, QScrollArea, QMessageBox,
@@ -122,7 +123,12 @@ class OrchestratorApp(QMainWindow):
         self.check_log_file = "language_check.log"
         self.translated_log_file = "language_proof_translated.log"
         self.replacements_file = "replacements.json"
-        self.sentence_pairs = []
+        
+        # Pagination & Data Model
+        self.sentence_pairs = [] # Only for CURRENT page widgets
+        self.all_data = [] # List of dicts: {'original': str, 'translated': str}
+        self.current_page = 0
+        self.items_per_page = 50
 
         # --- 위젯 ---
         self.setup_ui()
@@ -159,6 +165,25 @@ class OrchestratorApp(QMainWindow):
         self.scroll_layout = QVBoxLayout(self.scroll_content)
         self.scroll_area.setWidget(self.scroll_content)
         self.main_layout.addWidget(self.scroll_area)
+        
+        # --- Pagination Controls ---
+        pagination_layout = QHBoxLayout()
+        
+        self.prev_button = QPushButton("이전")
+        self.prev_button.clicked.connect(lambda: self.change_page(-1))
+        self.prev_button.setEnabled(False)
+        pagination_layout.addWidget(self.prev_button)
+        
+        self.page_label = QLabel("0 / 0")
+        self.page_label.setAlignment(Qt.AlignCenter)
+        pagination_layout.addWidget(self.page_label)
+        
+        self.next_button = QPushButton("다음")
+        self.next_button.clicked.connect(lambda: self.change_page(1))
+        self.next_button.setEnabled(False)
+        pagination_layout.addWidget(self.next_button)
+        
+        self.main_layout.addLayout(pagination_layout)
 
         # Status Bar
         self.status_bar = QStatusBar()
@@ -201,15 +226,6 @@ class OrchestratorApp(QMainWindow):
 
     def load_check_log(self):
         logging.info(f"'{self.check_log_file}' 파일에서 검수 결과를 로드합니다.")
-        for i in reversed(range(self.scroll_layout.count())):
-            layout_item = self.scroll_layout.takeAt(i)
-            if layout_item.widget(): layout_item.widget().deleteLater()
-            elif layout_item.layout():
-                while layout_item.layout().count() > 0:
-                    sub_item = layout_item.layout().takeAt(0)
-                    if sub_item.widget(): sub_item.widget().deleteLater()
-
-        self.sentence_pairs = []
         
         original_lines = parse_log(self.check_log_file)
         logging.info(f"로그 파일에서 {len(original_lines)}개의 항목을 찾았습니다.")
@@ -219,25 +235,81 @@ class OrchestratorApp(QMainWindow):
             self.status_bar.showMessage("검수할 일본어 또는 중국어 문자가 없습니다.", 5000)
             self.apply_fix_button.setEnabled(False)
             self.load_translated_log_button.setEnabled(False)
+            # Clear data
+            self.all_data = []
+            self.render_current_page()
             return
 
-        for line in original_lines:
-            original_text = line
+        # Initialize Data Model
+        self.all_data = [{'original': line, 'translated': line} for line in original_lines]
+        self.current_page = 0
+        
+        self.apply_fix_button.setEnabled(True)
+        self.load_translated_log_button.setEnabled(True)
+        
+        self.render_current_page()
+        self.status_bar.showMessage(f"{len(self.all_data)}개의 검수 항목을 로드했습니다. 수정 후 버튼을 눌러주세요.")
+
+    def render_current_page(self):
+        # 1. Clear existing items
+        for i in reversed(range(self.scroll_layout.count())):
+            layout_item = self.scroll_layout.takeAt(i)
+            if layout_item.widget(): layout_item.widget().deleteLater()
+            elif layout_item.layout():
+                while layout_item.layout().count() > 0:
+                    sub_item = layout_item.layout().takeAt(0)
+                    if sub_item.widget(): sub_item.widget().deleteLater()
+        
+        self.sentence_pairs = [] # Reset widget tracker for this page
+
+        if not self.all_data:
+            self.page_label.setText("0 / 0")
+            self.prev_button.setEnabled(False)
+            self.next_button.setEnabled(False)
+            return
+
+        total_pages = math.ceil(len(self.all_data) / self.items_per_page)
+        
+        start_idx = self.current_page * self.items_per_page
+        end_idx = min(start_idx + self.items_per_page, len(self.all_data))
+        
+        page_items = self.all_data[start_idx:end_idx]
+        
+        for item in page_items:
+            original_text = item['original']
+            translated_text = item['translated']
+            
             pair_layout = QHBoxLayout()
             original_label = QLabel(original_text)
             original_label.setTextFormat(Qt.PlainText)
             original_label.setWordWrap(True)
             translation_edit = QTextEdit()
-            translation_edit.setPlainText(original_text)
+            translation_edit.setPlainText(translated_text)
             translation_edit.setMinimumHeight(40)
+            
             pair_layout.addWidget(original_label, 1)
             pair_layout.addWidget(translation_edit, 1)
             self.scroll_layout.addLayout(pair_layout)
             self.sentence_pairs.append((original_label, translation_edit))
+            
+        # Update Pagination Controls
+        self.page_label.setText(f"{self.current_page + 1} / {total_pages}")
+        self.prev_button.setEnabled(self.current_page > 0)
+        self.next_button.setEnabled(self.current_page < total_pages - 1)
         
-        self.apply_fix_button.setEnabled(True)
-        self.load_translated_log_button.setEnabled(True)
-        self.status_bar.showMessage(f"{len(self.sentence_pairs)}개의 검수 항목을 로드했습니다. 수정 후 버튼을 눌러주세요.")
+        # Scroll to top
+        self.scroll_area.verticalScrollBar().setValue(0)
+
+    def change_page(self, delta):
+        self.save_current_page_data()
+        self.current_page += delta
+        self.render_current_page()
+
+    def save_current_page_data(self):
+        start_idx = self.current_page * self.items_per_page
+        for i, (_, translation_edit) in enumerate(self.sentence_pairs):
+            if start_idx + i < len(self.all_data):
+                self.all_data[start_idx + i]['translated'] = translation_edit.toPlainText().strip()
 
     def load_translated_log(self):
         logging.info("수정본 로그 파일 로드를 시작합니다.")
@@ -252,14 +324,16 @@ class OrchestratorApp(QMainWindow):
             QMessageBox.critical(self, "오류", f"수정본 로그 파일을 읽는 중 오류가 발생했거나 파일 내용이 비어있습니다.")
             return
 
-        if len(parsed_lines) != len(self.sentence_pairs):
-            QMessageBox.warning(self, "경고", f"현재 표시된 항목({len(self.sentence_pairs)}개)과 불러온 로그의 항목({len(parsed_lines)}개) 수가 다릅니다. 일부만 적용될 수 있습니다.")
-            logging.warning(f"항목 수 불일치: 현재 {len(self.sentence_pairs)}개, 로그 {len(parsed_lines)}개")
+        if len(parsed_lines) != len(self.all_data):
+            QMessageBox.warning(self, "경고", f"현재 항목({len(self.all_data)}개)과 불러온 로그의 항목({len(parsed_lines)}개) 수가 다릅니다. 일부만 적용될 수 있습니다.")
+            logging.warning(f"항목 수 불일치: 현재 {len(self.all_data)}개, 로그 {len(parsed_lines)}개")
 
         for i, line in enumerate(parsed_lines):
-            if i < len(self.sentence_pairs):
-                _, translation_edit = self.sentence_pairs[i]
-                translation_edit.setPlainText(line)
+            if i < len(self.all_data):
+                self.all_data[i]['translated'] = line
+        
+        # Refresh current page view
+        self.render_current_page()
         
         self.status_bar.showMessage(f"'{os.path.basename(file_path)}' 파일에서 {len(parsed_lines)}개의 수정본을 로드했습니다.", 5000)
         logging.info(f"'{file_path}'에서 {len(parsed_lines)}개의 수정본을 로드하여 적용했습니다.")
@@ -270,12 +344,13 @@ class OrchestratorApp(QMainWindow):
             logging.error("수정 적용 실패: 대상 파일이 없습니다.")
             return
 
+        self.save_current_page_data() # Ensure current page edits are saved
+
         logging.info(f"수정된 내용을 '{self.translated_log_file}' 파일에 저장합니다.")
         self.status_bar.showMessage("수정된 로그를 저장하는 중...")
         with open(self.translated_log_file, 'w', encoding='utf-8') as f:
-            for _, translation_edit in self.sentence_pairs:
-                translated_text = translation_edit.toPlainText().strip()
-                f.write(f"{translated_text}\n")
+            for item in self.all_data:
+                f.write(f"{item['translated']}\n")
         
         logging.info("수정된 로그 저장 완료. 원본 파일에 수정을 적용합니다.")
         self.status_bar.showMessage("수정된 로그 저장 완료. 원본 파일에 적용 중...")
@@ -296,13 +371,8 @@ class OrchestratorApp(QMainWindow):
             self.file_to_check = None
             self.apply_fix_button.setEnabled(False)
             self.load_translated_log_button.setEnabled(False)
-            for i in reversed(range(self.scroll_layout.count())):
-                layout_item = self.scroll_layout.takeAt(i)
-                if layout_item.widget(): layout_item.widget().deleteLater()
-                elif layout_item.layout():
-                    while layout_item.layout().count() > 0:
-                        sub_item = layout_item.layout().takeAt(0)
-                        if sub_item.widget(): sub_item.widget().deleteLater()
+            self.all_data = []
+            self.render_current_page()
 
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             error_message = e.stderr if hasattr(e, 'stderr') else str(e)
